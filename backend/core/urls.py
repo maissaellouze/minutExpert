@@ -16,7 +16,28 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path
-
+from django.urls import path
+from accounts.views import ClientSignupView, LoginView
+from experts.views import (
+    ExpertRequestCreateView,
+    ExpertRequestListView,
+    ExpertRequestDecisionView,
+)
+from django.http import JsonResponse
+from rest_framework_simplejwt.views import TokenRefreshView
+def api_home(request):
+    return JsonResponse({"status": "MinuteExpert API is running", "version": "1.0"})
 urlpatterns = [
+    path('', api_home),
     path('admin/', admin.site.urls),
+    #auth
+    path('api/auth/signup/',         ClientSignupView.as_view()),
+    path('api/auth/login/',          LoginView.as_view()),
+    path('api/auth/token/refresh/',  TokenRefreshView.as_view()),
+
+    # Expert requests
+    path('api/expert-requests/',              ExpertRequestCreateView.as_view()),
+    path('api/admin/expert-requests/',        ExpertRequestListView.as_view()),
+    path('api/admin/expert-requests/<int:pk>/decision/', ExpertRequestDecisionView.as_view()),
+
 ]

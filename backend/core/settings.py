@@ -9,8 +9,10 @@ https://docs.djangoproject.com/en/5.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
-
+import os
 from pathlib import Path
+from dotenv import load_dotenv
+load_dotenv()
 # settings.py
 AUTH_USER_MODEL = 'accounts.User'
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -28,7 +30,18 @@ DEBUG = True
 
 ALLOWED_HOSTS = []
 
+# Dans settings.py
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')
 
+# --- LIGNES DE TEST (À supprimer après) ---
+print(f"DEBUG SMTP USER: {EMAIL_HOST_USER}")
+print(f"DEBUG SMTP PASS: {'Configuré' if EMAIL_HOST_PASSWORD else 'VIDE'}")
+# ------------------------------------------
 # Application definition
 
 INSTALLED_APPS = [

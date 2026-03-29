@@ -1,3 +1,168 @@
-from django.shortcuts import render
+import secrets
+import string
+from django.contrib.auth import get_user_model
+from django.core.mail import send_mail
+from django.conf import settings
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
 
-# Create your views here.
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import AllowAny
+from rest_framework.parsers import MultiPartParser, FormParser
+
+from .models import ExpertRequest, ExpertProfile
+from .serializers import ExpertRequestSerializer, ExpertRequestAdminSerializer
+
+User = get_user_model()
+
+# ── HELPER : Création du compte ──────────────────────────────
+def _create_expert_account(req):
+    """
+    Crée le compte User + ExpertProfile + Envoie un email de bienvenue.
+    """
+    print(f"--- 🚀 Début du processus pour : {req.email} ---")
+    
+    # 1. Génération d'un mot de passe sécurisé (12 caractères)
+    alphabet = string.ascii_letters + string.digits + "!@#$%"
+    password = ''.join(secrets.choice(alphabet) for _ in range(12))
+
+    # 2. Vérifier si l'utilisateur existe déjà
+    user = User.objects.filter(email=req.email).first()
+    
+    if not user:
+        print("DEBUG: Création d'un nouvel utilisateur...")
+        # Génération d'un username unique (ex: maissa829)
+        base_username = req.email.split('@')[0]
+        username = base_username
+        counter = 1
+        while User.objects.filter(username=username).exists() and counter < 10:
+            username = f"{base_username}{counter}"
+            counter += 1
+
+        # Création de l'objet User
+        user = User.objects.create_user(
+            email=req.email,
+            username=username,
+            first_name=req.first_name,
+            last_name=req.last_name
+        )
+        user.set_password(password)
+        
+        # Attribution du rôle expert si le champ existe
+        if hasattr(user, 'role'):
+            user.role = 'expert'
+        user.save()
+        print(f"DEBUG: User créé (ID: {user.id})")
+    else:
+        print("DEBUG: L'utilisateur existe déjà, mise à jour en rôle Expert.")
+        if hasattr(user, 'role'):
+            user.role = 'expert'
+            user.save()
+
+    # 3. Création ou mise à jour du ExpertProfile
+    profile, created = ExpertProfile.objects.get_or_create(
+        user=user,
+        defaults={'is_verified': True, 'hourly_rate': 0}
+    )
+    if not created:
+        profile.is_verified = True
+        profile.save()
+    
+    # Ajout de la catégorie d'expertise
+    if req.category:
+        profile.categories.add(req.category)
+
+    # 4. Lier la candidature à l'utilisateur
+    req.user = user
+    req.save()
+
+    # 5. ENVOI DE L'EMAIL RÉEL (Via Gmail SMTP)
+    print(f"DEBUG: Tentative d'envoi d'email à {req.email}...")
+    try:
+        subject = '✅ Bienvenue chez MinuteExpert - Candidature Approuvée'
+        message = f"""
+Bonjour {req.first_name},
+
+Félicitations ! Votre candidature en tant qu'expert sur MinuteExpert a été approuvée.
+
+Voici vos accès pour vous connecter :
+--------------------------------------------------
+🌐 URL : {getattr(settings, 'FRONTEND_URL', 'http://localhost:5173')}/login
+📧 Email : {req.email}
+👤 Identifiant : {user.username}
+🔑 Mot de passe temporaire : {password}
+--------------------------------------------------
+
+Nous vous conseillons de changer votre mot de passe dès votre première connexion.
+
+Bienvenue dans l'équipe !
+L'équipe MinuteExpert.
+        """
+        
+        send_mail(
+            subject,
+            message,
+            settings.DEFAULT_FROM_EMAIL,
+            [req.email],
+            fail_silently=False, # On veut voir l'erreur si ça échoue
+        )
+        print("✅ DEBUG: Email envoyé avec succès !")
+    except Exception as e:
+        print(f"❌ ERREUR SMTP : Impossible d'envoyer l'email. Détails : {e}")
+
+    # Log final pour le terminal
+    print(f"\n--- ✅ PROCESSUS TERMINÉ ---")
+    print(f"Expert : {req.email} | Pass : {password}\n")
+
+# ── VUES API ──────────────────────────────────────────────────
+
+class ExpertRequestCreateView(APIView):
+    """Soumission de candidature par le candidat"""
+    permission_classes = [AllowAny]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        data = request.data.copy()
+        file_obj = request.FILES.get('diploma_file')
+        if file_obj:
+            data['diploma_file'] = file_obj.read()
+            data['diploma_filename'] = file_obj.name
+            data['diploma_mimetype'] = file_obj.content_type
+
+        s = ExpertRequestSerializer(data=data, context={'request': request})
+        if s.is_valid():
+            s.save()
+            return Response({'detail': 'Candidature envoyée.'}, status=status.HTTP_201_CREATED)
+        return Response(s.errors, status=status.HTTP_400_BAD_REQUEST)
+
+@method_decorator(csrf_exempt, name='dispatch')
+class ExpertRequestListView(APIView):
+    """Liste des candidatures pour l'admin"""
+    permission_classes = [AllowAny]
+    def get(self, request):
+        qs = ExpertRequest.objects.select_related('category', 'user').order_by('-id')
+        s = ExpertRequestAdminSerializer(qs, many=True)
+        return Response(s.data)
+
+class ExpertRequestDecisionView(APIView):
+    """Décision Admin (Approuver/Refuser)"""
+    permission_classes = [AllowAny] 
+    def post(self, request, pk):
+        try:
+            req = ExpertRequest.objects.get(pk=pk)
+        except ExpertRequest.DoesNotExist:
+            return Response({'detail': 'Introuvable.'}, status=404)
+
+        decision = request.data.get('decision')
+        if decision not in ('approved', 'rejected'):
+            return Response({'detail': 'Décision invalide.'}, status=400)
+
+        req.status = decision
+        req.save()
+
+        if decision == 'approved':
+            _create_expert_account(req)
+
+        return Response({'detail': f'Candidature {decision}.'})
