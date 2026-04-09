@@ -12,8 +12,8 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.parsers import MultiPartParser, FormParser
 
-from .models import ExpertRequest, ExpertProfile
-from .serializers import ExpertRequestSerializer, ExpertRequestAdminSerializer
+from .models import ExpertRequest, ExpertProfile, Category
+from .serializers import ExpertRequestSerializer, ExpertRequestAdminSerializer, CategorySerializer, ExpertProfileSerializer
 
 User = get_user_model()
 
@@ -166,3 +166,36 @@ class ExpertRequestDecisionView(APIView):
             _create_expert_account(req)
 
         return Response({'detail': f'Candidature {decision}.'})
+
+class CategoryListView(APIView):
+    """Liste de toutes les catégories actives"""
+    permission_classes = [AllowAny]
+    def get(self, request):
+        qs = Category.objects.filter(is_active=True)
+        s = CategorySerializer(qs, many=True)
+        return Response(s.data)
+
+class ExpertListView(APIView):
+    """Liste des experts validés. Permet le filtrage par slug de catégorie."""
+    permission_classes = [AllowAny]
+    def get(self, request):
+        category_slug = request.query_params.get('category')
+        qs = ExpertProfile.objects.filter(is_verified=True).select_related('user').prefetch_related('categories')
+        
+        if category_slug:
+            qs = qs.filter(categories__slug=category_slug)
+            
+        s = ExpertProfileSerializer(qs, many=True)
+        return Response(s.data)
+
+class ExpertDetailView(APIView):
+    """Détail d'un expert spécifique"""
+    permission_classes = [AllowAny]
+    def get(self, request, pk):
+        try:
+            expert = ExpertProfile.objects.select_related('user').prefetch_related('categories').get(pk=pk, is_verified=True)
+        except ExpertProfile.DoesNotExist:
+            return Response({'detail': 'Expert introuvable.'}, status=404)
+            
+        s = ExpertProfileSerializer(expert)
+        return Response(s.data)

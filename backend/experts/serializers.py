@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import ExpertRequest, Category
+from .models import ExpertRequest, Category, ExpertProfile
 
 class ExpertRequestSerializer(serializers.ModelSerializer):
     class Meta:
@@ -37,4 +37,28 @@ class ExpertRequestAdminSerializer(serializers.ModelSerializer):
             'user_email', 
             'status',
             'diploma_filename' 
+        ]
+
+class CategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Category
+        fields = ['id', 'name', 'slug', 'is_active']
+
+class ExpertProfileSerializer(serializers.ModelSerializer):
+    categories = CategorySerializer(many=True, read_only=True)
+    first_name = serializers.CharField(source='user.first_name', read_only=True)
+    last_name = serializers.CharField(source='user.last_name', read_only=True)
+    email = serializers.EmailField(source='user.email', read_only=True)
+
+    class Meta:
+        model = ExpertProfile
+        fields = [
+            'id', 
+            'first_name', 
+            'last_name', 
+            'email',
+            'categories', 
+            'hourly_rate', 
+            'avg_rating', 
+            'is_verified'
         ]

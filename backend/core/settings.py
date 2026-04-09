@@ -18,7 +18,7 @@ AUTH_USER_MODEL = 'accounts.User'
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-
+load_dotenv(BASE_DIR / ".env") 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
@@ -38,9 +38,6 @@ EMAIL_USE_TLS = True
 EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER')
 EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')
 
-# --- LIGNES DE TEST (À supprimer après) ---
-print(f"DEBUG SMTP USER: {EMAIL_HOST_USER}")
-print(f"DEBUG SMTP PASS: {'Configuré' if EMAIL_HOST_PASSWORD else 'VIDE'}")
 # ------------------------------------------
 # Application definition
 
@@ -58,6 +55,8 @@ INSTALLED_APPS = [
     'experts',
     'bookings',
     'payments',
+    'reviews',    
+    'video_sessions',
 ]
 
 MIDDLEWARE = [
@@ -99,7 +98,7 @@ DATABASES = {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': 'minutexpert_db',      # Le nom de la base que tu vas créer
         'USER': 'admin',     # Ton nom d'utilisateur Postgres
-        'PASSWORD': 'Hh10833746*+',    # Ton mot de passe
+        'PASSWORD': 'admin123',    # Ton mot de passe
         'HOST': '127.0.0.1',           # Ou 'localhost'
         'PORT': '5432',                # Port par défaut de Postgres
     }
