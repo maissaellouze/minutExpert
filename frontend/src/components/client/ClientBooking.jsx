@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
-import { experts, days, timeSlots, globalBookedSlots } from '../../data/mockData';
+import { days, timeSlots, globalBookedSlots } from '../../data/mockData';
+import { clientAPI } from '../../services/api';
 import { ExpertCard } from '../ui';
 
 // ─── BOOKING WIZARD ───
@@ -9,6 +10,30 @@ export function ClientBook() {
     selectedDur, setSelectedDur, bookStep, setBookStep, bookedSlots, mySlots, confirmBooking } = useApp();
 
   const [localDur, setLocalDur] = useState(selectedDur);
+  const [expertsList, setExpertsList] = useState([]);
+  const [loadingExperts, setLoadingExperts] = useState(true);
+
+  useEffect(() => {
+    clientAPI.getExperts().then(data => {
+      const mapped = (data || []).map(e => ({
+        id: e.id,
+        name: `${e.first_name} ${e.last_name}`,
+        init: e.first_name ? e.first_name[0] : 'E',
+        title: e.title || 'Expert MinuteExpert',
+        domain: e.categories?.[0]?.slug || 'tech',
+        tags: e.categories?.map(c => c.name) || [],
+        bio: e.bio || 'Aucune biographie.',
+        rate: parseFloat(e.hourly_rate) || 0.85,
+        rating: parseFloat(e.avg_rating) || 0,
+        reviews: 0,
+        status: 'online',
+        color: '#e0f2fe',
+        tc: '#0284c7'
+      }));
+      setExpertsList(mapped);
+      setLoadingExperts(false);
+    }).catch(() => setLoadingExperts(false));
+  }, []);
 
   const handleSelectExpert = (e) => {
     setSelectedExpert(e);
@@ -55,7 +80,7 @@ export function ClientBook() {
       {/* Step 0: Choose expert */}
       {bookStep === 0 && (
         <div className="expert-grid">
-          {experts.map(e => <ExpertCard key={e.id} expert={e} onBook={handleSelectExpert} onOpen={handleSelectExpert} />)}
+          {loadingExperts ? <div>Chargement...</div> : expertsList.map(e => <ExpertCard key={e.id} expert={e} onBook={handleSelectExpert} onOpen={handleSelectExpert} />)}
         </div>
       )}
 
@@ -76,8 +101,8 @@ export function ClientBook() {
             <div className="card-header"><div className="card-title">Créneau disponible</div></div>
             <div className="card-body">
               <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>
-                🔒 <span style={{ color: 'var(--orange)' }}>Orange</span> = déjà réservé ·{' '}
-                ✓ <span style={{ color: 'var(--blue)' }}>Bleu</span> = mes réservations
+                ✓ <span style={{ color: 'var(--blue)' }}>Bleu</span> = Disponible ·{' '}
+                ✕ <span style={{ color: 'var(--red)' }}>Rouge</span> = Déjà réservé / Indisponible
               </p>
               <div className="avail-grid">
                 {days.map(day => (
@@ -89,13 +114,20 @@ export function ClientBook() {
                         const isMySlot = (mySlots[selectedExpert?.id]?.[day] || []).includes(si);
                         const isBookedByOther = (bookedSlots[selectedExpert.id]?.[day] || []).includes(si) && !isMySlot;
                         const isSelected = selectedSlot?.day === day && selectedSlot?.si === si;
+                        
+                        // Simulate non-working hours: experts don't work after 5:30 PM (si >= 17) or before 10 AM (si < 2) on some days
+                        const isNonWorking = si < 2 || si >= 16 || (['Samedi', 'Dimanche'].includes(day) && si > 6);
+                        
                         let cls = 'slot-btn';
+                        const isUnavailable = isGloballyBooked || isBookedByOther || isNonWorking;
+
                         if (isMySlot) cls += ' mine';
-                        else if (isGloballyBooked || isBookedByOther) cls += ' booked';
+                        else if (isUnavailable) cls += ' booked';
                         else if (isSelected) cls += ' on';
+
                         return (
                           <button key={si} className={cls} onClick={() => handleSelectSlot(day, si)}
-                            disabled={isGloballyBooked || isBookedByOther}>
+                            disabled={isUnavailable}>
                             {slot}
                           </button>
                         );
@@ -239,14 +271,43 @@ export function BookingSuccess() {
 
 // ─── CLIENT HISTORY ───
 export function ClientHistory() {
-  const { upcomingSessions, cancelUpcoming, launchSession } = useApp();
+  const { launchSession, showToast } = useApp();
   const [tab, setTab] = useState('upcoming');
+  const [allBookings, setAllBookings] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const historyData = [
-    { init: 'SB', color: '#ffeaea', tc: '#c0392b', name: 'Dr. Sarah Benali', sub: 'Médecin généraliste', date: "Aujourd'hui · 11:23", dur: '4 min 12s', amount: '€3.57', note: '★★★★★', id: 1 },
-    { init: 'JM', color: '#e8f0ff', tc: '#1a4a9e', name: 'Me. Julien Moreau', sub: 'Avocat', date: 'Hier · 15:40', dur: '8 min 00s', amount: '€11.20', note: '★★★★★', id: 2 },
-    { init: 'LF', color: '#e8fff4', tc: '#0e6e42', name: 'Léa Fontaine', sub: 'Développeuse Senior', date: 'Il y a 3j · 09:15', dur: '12 min 33s', amount: '€7.53', note: '★★★★☆', id: 3 },
-  ];
+  const fetchBookings = () => {
+    clientAPI.getMyBookings().then(data => {
+      setAllBookings(data || []);
+      setLoading(false);
+    }).catch(() => {
+      // Fallback to getMySessions if getMyBookings not ready
+      clientAPI.getMySessions().then(data => {
+        setAllBookings(data || []);
+        setLoading(false);
+      }).catch(() => setLoading(false));
+    });
+  };
+
+  useEffect(() => { fetchBookings(); }, []);
+
+  // Split bookings: upcoming = not completed/cancelled, history = completed/cancelled
+  const upcomingFromAPI = allBookings.filter(b =>
+    !['completed', 'cancelled'].includes(b.status)
+  );
+  const historyFromAPI = allBookings.filter(b =>
+    ['completed', 'cancelled'].includes(b.status)
+  );
+
+  const statusLabel = (s) => {
+    if (s === 'pending') return { label: 'En attente', cls: 'badge-pending' };
+    if (s === 'waiting_expert') return { label: '⏳ Attente expert', cls: 'badge-pending' };
+    if (s === 'in_progress') return { label: '🔴 En cours', cls: 'badge-online' };
+    if (s === 'accepted') return { label: 'Acceptée', cls: 'badge-approved' };
+    if (s === 'completed') return { label: 'Terminée', cls: 'badge-approved' };
+    if (s === 'cancelled') return { label: 'Annulée', cls: 'badge-rejected' };
+    return { label: s, cls: 'badge-pending' };
+  };
 
   return (
     <div>
@@ -257,16 +318,18 @@ export function ClientHistory() {
       <div style={{ display: 'flex', gap: 0, borderBottom: '1.5px solid var(--border)', marginBottom: 24 }}>
         <div onClick={() => setTab('upcoming')} style={{ padding: '10px 22px', fontSize: 14, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, ...(tab === 'upcoming' ? { color: 'var(--orange)', borderBottom: '2px solid var(--orange)', marginBottom: -1.5 } : { color: 'var(--muted)' }) }}>
           🗓 À venir
-          {upcomingSessions.length > 0 && <span style={{ background: 'var(--orange)', color: '#fff', fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20 }}>{upcomingSessions.length}</span>}
+          {upcomingFromAPI.length > 0 && <span style={{ background: 'var(--orange)', color: '#fff', fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20 }}>{upcomingFromAPI.length}</span>}
         </div>
         <div onClick={() => setTab('history')} style={{ padding: '10px 22px', fontSize: 14, fontWeight: 500, cursor: 'pointer', ...(tab === 'history' ? { color: 'var(--orange)', fontWeight: 600, borderBottom: '2px solid var(--orange)', marginBottom: -1.5 } : { color: 'var(--muted)' }) }}>
           📋 Historique
         </div>
       </div>
 
-      {/* Upcoming tab */}
+      {/* Upcoming tab — from real API */}
       {tab === 'upcoming' && (
-        upcomingSessions.length === 0 ? (
+        loading ? (
+          <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--muted)' }}>Chargement…</div>
+        ) : upcomingFromAPI.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '48px 0' }}>
             <div style={{ fontSize: 48, marginBottom: 12 }}>🗓</div>
             <div style={{ fontFamily: 'var(--syne)', fontSize: 18, fontWeight: 700, marginBottom: 6 }}>Aucune session à venir</div>
@@ -274,32 +337,56 @@ export function ClientHistory() {
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {upcomingSessions.map(b => (
-              <div key={b.id} className="card" style={{ borderLeft: '4px solid var(--green)' }}>
-                <div className="card-body" style={{ padding: '20px 22px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                    <div style={{ width: 48, height: 48, borderRadius: 12, background: b.expert.color, color: b.expert.tc, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--syne)', fontSize: 18, fontWeight: 700, flexShrink: 0 }}>{b.expert.init}</div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontFamily: 'var(--syne)', fontSize: 16, fontWeight: 700 }}>{b.expert.name}</div>
-                      <div style={{ fontSize: 13, color: 'var(--muted)' }}>{b.expert.title}</div>
-                    </div>
-                    <span className="badge badge-approved">🗓 À venir</span>
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
-                    {[{ lbl: 'Créneau', val: b.slot, color: 'var(--orange)' }, { lbl: 'Durée max', val: `${b.dur} min` }, { lbl: 'Max estimé', val: `€${b.maxCost}`, color: 'var(--orange)' }].map(item => (
-                      <div key={item.lbl} style={{ fontSize: 13 }}>
-                        <div style={{ color: 'var(--muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 3 }}>{item.lbl}</div>
-                        <div style={{ fontWeight: 600, color: item.color || 'inherit' }}>{item.val}</div>
+            {upcomingFromAPI.map(b => {
+              const st = statusLabel(b.status);
+              const canJoin = ['pending', 'waiting_expert', 'accepted', 'in_progress'].includes(b.status);
+              const expertObj = {
+                id: b.expert,
+                name: b.expert_name || 'Expert',
+                title: b.expert_title || 'Expert MinuteExpert',
+                init: b.expert_name ? b.expert_name[0] : 'E',
+                color: '#e0f2fe', tc: '#0284c7',
+                rate: parseFloat(b.total_price) / Math.max(b.duration_requested || 10, 1)
+              };
+              return (
+                <div key={b.id} className="card" style={{ borderLeft: `4px solid ${b.status === 'in_progress' ? 'var(--orange)' : 'var(--green)'}` }}>
+                  <div className="card-body" style={{ padding: '20px 22px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                      <div style={{ width: 48, height: 48, borderRadius: 12, background: '#e0f2fe', color: '#0284c7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--syne)', fontSize: 18, fontWeight: 700, flexShrink: 0 }}>
+                        {b.expert_name ? b.expert_name[0] : 'E'}
                       </div>
-                    ))}
-                  </div>
-                  <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
-                    <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)', borderColor: 'var(--red)' }} onClick={() => cancelUpcoming(b.id)}>Annuler</button>
-                    <button className="btn btn-primary btn-sm" style={{ flex: 1 }} onClick={() => launchSession(b.expert, b.dur)}>Rejoindre la session →</button>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontFamily: 'var(--syne)', fontSize: 16, fontWeight: 700 }}>{b.expert_name || 'Expert'}</div>
+                        <div style={{ fontSize: 13, color: 'var(--muted)' }}>{b.expert_title || 'Expert MinuteExpert'}</div>
+                      </div>
+                      <span className={`badge ${st.cls}`}>{st.label}</span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+                      {[
+                        { lbl: 'Référence', val: b.booking_ref || `#${b.id}` },
+                        { lbl: 'Durée max', val: `${b.duration_requested || '--'} min` },
+                        { lbl: 'Montant max', val: `€${b.total_price || '0.00'}`, color: 'var(--orange)' }
+                      ].map(item => (
+                        <div key={item.lbl} style={{ fontSize: 13 }}>
+                          <div style={{ color: 'var(--muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 3 }}>{item.lbl}</div>
+                          <div style={{ fontWeight: 600, color: item.color || 'inherit' }}>{item.val}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {canJoin && (
+                      <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+                        <button
+                          className="btn btn-primary btn-sm"
+                          style={{ flex: 1 }}
+                          onClick={() => launchSession(expertObj, b.duration_requested || 10, b.id)}>
+                          {b.status === 'in_progress' ? '🔴 Rejoindre (en cours) →' : 'Rejoindre la session →'}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )
       )}
@@ -310,21 +397,25 @@ export function ClientHistory() {
           <div className="card-body" style={{ padding: 0 }}>
             <table className="table">
               <thead>
-                <tr><th>Expert</th><th>Date</th><th>Durée réelle</th><th>Montant facturé</th><th>Note</th><th></th></tr>
+                <tr><th>Expert</th><th>Date</th><th>Durée réelle</th><th>Montant facturé</th><th>Statut</th><th></th></tr>
               </thead>
               <tbody>
-                {historyData.map(h => (
-                  <tr key={h.id}>
+                {loading ? (
+                  <tr><td colSpan="6" style={{ textAlign: 'center', padding: 20 }}>Chargement...</td></tr>
+                ) : historyFromAPI.length === 0 ? (
+                  <tr><td colSpan="6" style={{ textAlign: 'center', padding: 20, color: 'var(--muted)' }}>Aucune session terminée.</td></tr>
+                ) : historyFromAPI.map((h, i) => (
+                  <tr key={i}>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <div style={{ width: 34, height: 34, borderRadius: 9, background: h.color, color: h.tc, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--syne)', fontWeight: 700, fontSize: 13, flexShrink: 0 }}>{h.init}</div>
-                        <div><div style={{ fontWeight: 600 }}>{h.name}</div><div style={{ fontSize: 11, color: 'var(--muted)' }}>{h.sub}</div></div>
+                        <div style={{ width: 34, height: 34, borderRadius: 9, background: '#e0f2fe', color: '#0284c7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--syne)', fontWeight: 700, fontSize: 13, flexShrink: 0 }}>{h.expert_name ? h.expert_name[0] : 'E'}</div>
+                        <div><div style={{ fontWeight: 600 }}>{h.expert_name || 'Expert'}</div><div style={{ fontSize: 11, color: 'var(--muted)' }}>{h.expert_title || 'Expertise'}</div></div>
                       </div>
                     </td>
-                    <td style={{ color: 'var(--muted)', fontSize: 13 }}>{h.date}</td>
-                    <td>{h.dur}</td>
-                    <td><strong style={{ color: 'var(--orange)' }}>{h.amount}</strong></td>
-                    <td style={{ color: 'var(--amber)' }}>{h.note}</td>
+                    <td style={{ color: 'var(--muted)', fontSize: 13 }}>{h.scheduled_at ? new Date(h.scheduled_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }) : '--'}</td>
+                    <td>{h.actual_duration || h.duration_requested || '--'} min</td>
+                    <td><strong style={{ color: 'var(--orange)' }}>€{h.total_price || '0.00'}</strong></td>
+                    <td><span className={`badge ${statusLabel(h.status).cls}`}>{statusLabel(h.status).label}</span></td>
                     <td><button className="btn btn-ghost btn-sm">Re-réserver</button></td>
                   </tr>
                 ))}
@@ -336,3 +427,4 @@ export function ClientHistory() {
     </div>
   );
 }
+

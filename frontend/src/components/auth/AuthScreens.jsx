@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { expertAPI } from '../../services/api';
 
@@ -98,12 +98,23 @@ export function RegisterScreen() {
   const [password,  setPassword]  = useState('');
 
   // Champs expert (step 2)
-  const [category,  setCategory]  = useState('1');
+  const [category,  setCategory]  = useState('');
+  const [categories, setCategories] = useState([]);
   const [cvFile,    setCvFile]    = useState(null);
   const [bio,       setBio]       = useState('');
   const [expertLoading, setExpertLoading] = useState(false);
   const [expertError,   setExpertError]   = useState('');
   const fileRef = useRef();
+
+  // Charger les catégories au montage
+  useEffect(() => {
+    expertAPI.getCategories()
+      .then(data => {
+        setCategories(data);
+        if (data.length > 0) setCategory(data[0].id.toString());
+      })
+      .catch(() => setExpertError('Impossible de charger les catégories.'));
+  }, []);
 
   const dots = [0, 1, 2];
 
@@ -295,11 +306,9 @@ export function RegisterScreen() {
             <div className="form-group">
               <label className="form-label">Domaine d'expertise</label>
               <select className="form-input" value={category} onChange={e => setCategory(e.target.value)}>
-                <option value="1">⚕ Médical</option>
-                <option value="2">⚖ Juridique</option>
-                <option value="3">💻 Tech &amp; Dev</option>
-                <option value="4">📈 Finance</option>
-                <option value="5">🎨 Créatif</option>
+                {categories.map(cat => (
+                  <option key={cat.id} value={cat.id}>{cat.name}</option>
+                ))}
               </select>
             </div>
 

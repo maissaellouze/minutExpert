@@ -1,6 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
-import { experts } from '../../data/mockData';
+import { clientAPI } from '../../services/api';
 import { ExpertCard } from '../ui';
 
 // ─── EXPERT DETAIL MODAL ───
@@ -45,16 +45,44 @@ function ExpertModal({ expert, onClose, onBook }) {
 
 // ─── CLIENT HOME ───
 export function ClientHome() {
-  const { setClientPage, setSelectedExpert, setBookStep } = useApp();
+  const { currentUser, setClientPage, setSelectedExpert, setBookStep } = useApp();
   const [search, setSearch] = useState('');
   const [cat, setCat] = useState('');
   const [modalExpert, setModalExpert] = useState(null);
+  const [expertsList, setExpertsList] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const filtered = useMemo(() => experts.filter(e => {
+  useEffect(() => {
+    clientAPI.getExperts().then(data => {
+      // Map backend data to frontend model
+      const mapped = (data || []).map(e => ({
+        id: e.id,
+        name: `${e.first_name} ${e.last_name}`,
+        init: e.first_name ? e.first_name[0] : 'E',
+        title: e.title || 'Expert MinuteExpert',
+        domain: e.categories?.[0]?.slug || 'tech',
+        tags: e.categories?.map(c => c.name) || [],
+        bio: e.bio || 'Aucune biographie.',
+        rate: parseFloat(e.hourly_rate) || 0.85,
+        rating: parseFloat(e.avg_rating) || 0,
+        reviews: e.review_count || 0,
+        status: 'online',
+        color: '#e0f2fe',
+        tc: '#0284c7'
+      }));
+      setExpertsList(mapped);
+      setLoading(false);
+    }).catch(err => {
+      console.error(err);
+      setLoading(false);
+    });
+  }, []);
+
+  const filtered = useMemo(() => expertsList.filter(e => {
     const matchSearch = !search || e.name.toLowerCase().includes(search.toLowerCase()) || e.tags.some(t => t.toLowerCase().includes(search.toLowerCase()));
     const matchCat = !cat || e.domain === cat;
     return matchSearch && matchCat;
-  }), [search, cat]);
+  }), [search, cat, expertsList]);
 
   const handleBook = (expert) => {
     setSelectedExpert(expert);
@@ -64,7 +92,7 @@ export function ClientHome() {
 
   return (
     <div>
-      <div className="page-eyebrow">Bonjour Marie 👋</div>
+      <div className="page-eyebrow">Bonjour {currentUser.first_name || 'Client'} 👋</div>
       <div className="page-title">Quel expert cherchez-vous ?</div>
       <div className="page-sub">34 secondes en moyenne pour commencer une session.</div>
       <div style={{ display: 'flex', gap: 10, marginBottom: 22 }}>
@@ -79,7 +107,7 @@ export function ClientHome() {
         </select>
       </div>
       <div className="expert-grid">
-        {filtered.map(e => <ExpertCard key={e.id} expert={e} onOpen={setModalExpert} onBook={handleBook} />)}
+        {loading ? <div style={{ padding: 20 }}>Chargement des experts...</div> : filtered.length === 0 ? <div style={{ padding: 20, color: 'var(--muted)' }}>Aucun expert trouvé.</div> : filtered.map(e => <ExpertCard key={e.id} expert={e} onOpen={setModalExpert} onBook={handleBook} />)}
       </div>
       {modalExpert && <ExpertModal expert={modalExpert} onClose={() => setModalExpert(null)} onBook={handleBook} />}
     </div>
@@ -90,6 +118,30 @@ export function ClientHome() {
 export function ClientBrowse() {
   const { setClientPage, setSelectedExpert, setBookStep } = useApp();
   const [modalExpert, setModalExpert] = useState(null);
+  const [expertsList, setExpertsList] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    clientAPI.getExperts().then(data => {
+      const mapped = (data || []).map(e => ({
+        id: e.id,
+        name: `${e.first_name} ${e.last_name}`,
+        init: e.first_name ? e.first_name[0] : 'E',
+        title: e.title || 'Expert MinuteExpert',
+        domain: e.categories?.[0]?.slug || 'tech',
+        tags: e.categories?.map(c => c.name) || [],
+        bio: e.bio || 'Aucune biographie.',
+        rate: parseFloat(e.hourly_rate) || 0.85,
+        rating: parseFloat(e.avg_rating) || 0,
+        reviews: e.review_count || 0,
+        status: 'online',
+        color: '#e0f2fe',
+        tc: '#0284c7'
+      }));
+      setExpertsList(mapped);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, []);
 
   const handleBook = (expert) => {
     setSelectedExpert(expert);
@@ -102,7 +154,7 @@ export function ClientBrowse() {
       <div className="page-eyebrow">Marketplace</div>
       <div className="page-title">Tous les experts</div>
       <div className="expert-grid">
-        {experts.map(e => <ExpertCard key={e.id} expert={e} onOpen={setModalExpert} onBook={handleBook} />)}
+        {loading ? <div>Chargement...</div> : expertsList.map(e => <ExpertCard key={e.id} expert={e} onOpen={setModalExpert} onBook={handleBook} />)}
       </div>
       {modalExpert && <ExpertModal expert={modalExpert} onClose={() => setModalExpert(null)} onBook={handleBook} />}
     </div>
@@ -111,7 +163,33 @@ export function ClientBrowse() {
 
 // ─── CLIENT SETTINGS ───
 export function ClientSettings() {
-  const { showToast } = useApp();
+  const { currentUser, showToast } = useApp();
+  const [profile, setProfile] = useState({ first_name: '', last_name: '', email: '' });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    clientAPI.getMe().then(data => {
+      setProfile({
+        first_name: data.first_name || '',
+        last_name: data.last_name || '',
+        email: data.email || ''
+      });
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, []);
+
+  const handleSave = async () => {
+    try {
+      await clientAPI.updateMe({ first_name: profile.first_name, last_name: profile.last_name });
+      // update email if needed (might require custom logic on backend)
+      showToast('Profil mis à jour ✓', 'Vos informations ont été sauvegardées.');
+    } catch (err) {
+      showToast('Erreur', err.message);
+    }
+  };
+
+  if (loading) return <div>Chargement du profil...</div>;
+
   return (
     <div>
       <div className="page-eyebrow">Compte</div>
@@ -120,11 +198,11 @@ export function ClientSettings() {
         <div className="card-header"><div className="card-title">Profil</div></div>
         <div className="card-body">
           <div className="form-row">
-            <div className="form-group"><label className="form-label">Prénom</label><input className="form-input" defaultValue="Marie" /></div>
-            <div className="form-group"><label className="form-label">Nom</label><input className="form-input" defaultValue="Dupont" /></div>
+            <div className="form-group"><label className="form-label">Prénom</label><input className="form-input" value={profile.first_name} onChange={e => setProfile({...profile, first_name: e.target.value})} /></div>
+            <div className="form-group"><label className="form-label">Nom</label><input className="form-input" value={profile.last_name} onChange={e => setProfile({...profile, last_name: e.target.value})} /></div>
           </div>
-          <div className="form-group"><label className="form-label">Email</label><input className="form-input" defaultValue="marie@exemple.com" /></div>
-          <button className="btn btn-primary" onClick={() => showToast('Profil mis à jour ✓', 'Vos informations ont été sauvegardées.')}>Sauvegarder</button>
+          <div className="form-group"><label className="form-label">Email</label><input className="form-input" disabled value={profile.email} /></div>
+          <button className="btn btn-primary" onClick={handleSave}>Sauvegarder</button>
         </div>
       </div>
     </div>

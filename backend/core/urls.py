@@ -17,11 +17,13 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 from django.urls import include, path
-from accounts.views import ClientSignupView, LoginView
+from accounts.views import ClientSignupView, LoginView, ClientMeView, ClientMySessionsView, AdminClientListView
 from experts.views import (
     ExpertRequestCreateView,
     ExpertRequestListView,
     ExpertRequestDecisionView,
+    CategoryListView,
+    AdminExpertListView,
 )
 from django.http import JsonResponse
 from rest_framework_simplejwt.views import TokenRefreshView
@@ -36,11 +38,20 @@ urlpatterns = [
     path('api/auth/signup/',         ClientSignupView.as_view()),
     path('api/auth/login/',          LoginView.as_view()),
     path('api/auth/token/refresh/',  TokenRefreshView.as_view()),
+    
+    # Client profile & sessions
+    path('api/clients/me/',          ClientMeView.as_view()),
+    path('api/clients/me/sessions/', ClientMySessionsView.as_view()),
 
-    # Expert requests
-    path('api/expert-requests/',              ExpertRequestCreateView.as_view()),
+    # Admin endpoints
+    path('api/admin/clients/',                AdminClientListView.as_view()),
+    path('api/admin/experts/',                AdminExpertListView.as_view()),
     path('api/admin/expert-requests/',        ExpertRequestListView.as_view()),
     path('api/admin/expert-requests/<int:pk>/decision/', ExpertRequestDecisionView.as_view()),
+
+    # Expert requests (public/expert)
+    path('api/expert-requests/',              ExpertRequestCreateView.as_view()),
+    path('api/categories/',                   CategoryListView.as_view()),
 
     # Experts public search
     path('api/experts/', include('experts.urls')),

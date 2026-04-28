@@ -114,6 +114,71 @@ export const expertAPI = {
     });
     return handleResponse(res);
   },
+
+  getCategories: async () => {
+    const res = await fetch(`${BASE}/categories/`);
+    return handleResponse(res);
+  },
+
+  getMe: async () => {
+    const res = await fetch(`${BASE}/experts/me/`, { headers: authHeaders() });
+    return handleResponse(res);
+  },
+
+  updateMe: async (data) => {
+    const res = await fetch(`${BASE}/experts/me/`, {
+      method: 'PATCH',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse(res);
+  },
+
+  getMySessions: async () => {
+    const res = await fetch(`${BASE}/experts/me/sessions/`, { headers: authHeaders() });
+    return handleResponse(res);
+  },
+};
+
+// ─── CLIENT ────────────────────────────────
+export const clientAPI = {
+  getMe: async () => {
+    const res = await fetch(`${BASE}/clients/me/`, { headers: authHeaders() });
+    return handleResponse(res);
+  },
+
+  updateMe: async (data) => {
+    const res = await fetch(`${BASE}/clients/me/`, {
+      method: 'PATCH',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    return handleResponse(res);
+  },
+
+  getMySessions: async () => {
+    const res = await fetch(`${BASE}/clients/me/sessions/`, { headers: authHeaders() });
+    return handleResponse(res);
+  },
+
+  getExperts: async () => {
+    const res = await fetch(`${BASE}/experts/list/`);
+    return handleResponse(res);
+  },
+
+  createBooking: async ({ expert_id, slot_label, duration, scheduled_at }) => {
+    const res = await fetch(`${BASE}/bookings/direct/`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ expert_id, slot_label, duration, scheduled_at }),
+    });
+    return handleResponse(res);
+  },
+
+  getMyBookings: async () => {
+    const res = await fetch(`${BASE}/bookings/my-bookings/`, { headers: authHeaders() });
+    return handleResponse(res);
+  },
 };
 
 // ─── ADMIN ─────────────────────────────────
@@ -143,4 +208,83 @@ export const adminAPI = {
     });
     return handleResponse(res);
   },
+
+  getClients: async () => {
+    const res = await fetch(`${BASE}/admin/clients/`, { headers: authHeaders() });
+    return handleResponse(res);
+  },
+
+  getExperts: async () => {
+    const res = await fetch(`${BASE}/admin/experts/`, { headers: authHeaders() });
+    return handleResponse(res);
+  },
 };
+
+// ─── SESSION ───────────────────────────────
+export const sessionAPI = {
+  /** Client demande le démarrage → expert en attente */
+  start: async (booking_id) => {
+    const res = await fetch(`${BASE}/sessions/start/`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ booking_id }),
+    });
+    return handleResponse(res);
+  },
+
+  /** Expert accepte la session */
+  accept: async (booking_id) => {
+    const res = await fetch(`${BASE}/sessions/accept/`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ booking_id }),
+    });
+    return handleResponse(res);
+  },
+
+  /** Expert refuse la session avec une raison */
+  reject: async (booking_id, reason) => {
+    const res = await fetch(`${BASE}/sessions/reject/`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ booking_id, reason }),
+    });
+    return handleResponse(res);
+  },
+
+  /** Polling: client vérifie si l'expert a accepté */
+  getStatus: async (booking_id) => {
+    const res = await fetch(`${BASE}/sessions/status/?booking_id=${booking_id}`, {
+      headers: authHeaders(),
+    });
+    return handleResponse(res);
+  },
+
+  /** Polling: expert voit les sessions en attente */
+  getPending: async () => {
+    const res = await fetch(`${BASE}/sessions/pending/`, { headers: authHeaders() });
+    return handleResponse(res);
+  },
+
+  /** Terminer la session + calculer le prix */
+  end: async (booking_id) => {
+    const res = await fetch(`${BASE}/sessions/end/`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ booking_id }),
+    });
+    return handleResponse(res);
+  },
+
+  /** Soumettre une note après la session */
+  submitReview: async ({ booking, rating, comment }) => {
+    const res = await fetch(`${BASE}/reviews/create/`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ booking, rating, comment }),
+    });
+    return handleResponse(res);
+  },
+};
+
+

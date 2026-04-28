@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
+import { expertAPI } from '../../services/api';
 import { days, timeSlots, expertInitialSlots } from '../../data/mockData';
 
 // ─── MINI BAR CHART ───
@@ -17,48 +18,160 @@ function MiniBarChart({ data, color = 'var(--orange)', height = 90 }) {
 }
 
 // ─── EXPERT DASHBOARD ───
-export function ExpertDash() {
-  const chartData = [210, 280, 195, 340, 290, 260, 284];
+export function ExpertDash({ pendingSessions = [], accepting = null, onAccept = () => {}, onReject = () => {} }) {
+  const { currentUser } = useApp();
+  const [sessions, setSessions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [rejectingBooking, setRejectingBooking] = useState(null);
+  const [rejectionReason, setRejectionReason] = useState("Indisponible pour le moment");
+
+  useEffect(() => {
+    expertAPI.getMySessions().then(data => {
+      setSessions(data || []);
+      setLoading(false);
+    }).catch(err => {
+      console.error(err);
+      setLoading(false);
+    });
+  }, []);
+
+  const chartData = [0, 0, 0, 0, 0, 0, 0];
+  const totalEarned = sessions.reduce((acc, s) => acc + (parseFloat(s.total_price) || 0), 0);
+
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 22 }}>
-        <div><div className="page-eyebrow">Bienvenue</div><div className="page-title">Dr. Sarah Benali</div></div>
+        <div><div className="page-eyebrow">Bienvenue</div><div className="page-title">{currentUser.first_name} {currentUser.last_name}</div></div>
       </div>
+
+      {/* Pending session notifications */}
+      {pendingSessions.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          {pendingSessions.map(p => (
+            <div key={p.id} className="card" style={{ borderLeft: '4px solid var(--orange)', marginBottom: 10 }}>
+              <div className="card-body" style={{ padding: '14px 20px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                      <div className="pulse" style={{ width: 8, height: 8 }} />
+                      <div style={{ fontWeight: 700, fontSize: 15 }}>Demande de session</div>
+                    </div>
+                    <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+                      <strong>{p.client_name}</strong> · {p.slot_label || 'Maintenant'} · {p.duration_requested || 10} min max · €{p.total_price}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={() => onAccept(p.id, p.client_name)}
+                      disabled={accepting === p.id}>
+                      {accepting === p.id ? 'Connexion…' : 'Accepter ✓'}
+                    </button>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      style={{ color: 'var(--red)', borderColor: 'var(--red)' }}
+                      onClick={() => setRejectingBooking({ id: p.id, clientName: p.client_name })}
+                      disabled={accepting === p.id}>
+                      Refuser
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="grid-4" style={{ marginBottom: 22 }}>
-        <div className="stat c-orange"><div className="stat-label">Aujourd'hui</div><div className="stat-val orange">€284</div><div className="stat-sub">11 sessions</div></div>
-        <div className="stat c-green"><div className="stat-label">Ce mois</div><div className="stat-val green">€3 420</div><div className="stat-sub">+22%</div></div>
-        <div className="stat c-amber"><div className="stat-label">Note</div><div className="stat-val amber">4.97 ★</div><div className="stat-sub">248 avis</div></div>
-        <div className="stat c-blue"><div className="stat-label">File d'attente</div><div className="stat-val blue">3</div><div className="stat-sub">en attente</div></div>
+        <div className="stat c-orange"><div className="stat-label">Aujourd'hui</div><div className="stat-val orange">€{totalEarned.toFixed(2)}</div><div className="stat-sub">{sessions.length} sessions</div></div>
+        <div className="stat c-green"><div className="stat-label">Ce mois</div><div className="stat-val green">€{totalEarned.toFixed(2)}</div><div className="stat-sub">...</div></div>
+        <div className="stat c-amber">
+          <div className="stat-label">Note</div>
+          <div className="stat-val amber">{currentUser?.avg_rating || currentUser?.expert_profile?.avg_rating || '0.00'} ★</div>
+          <div className="stat-sub">{currentUser?.review_count || 0} avis reçus</div>
+        </div>
+        <div className="stat c-blue"><div className="stat-label">File d'attente</div><div className="stat-val blue">{pendingSessions.length}</div><div className="stat-sub">en attente</div></div>
       </div>
+
+      {/* Rejection Modal */}
+      {rejectingBooking && (
+        <div className="modal-bg open">
+          <div className="modal" style={{ maxWidth: 400 }}>
+            <div className="modal-title">Refuser la session</div>
+            <div className="modal-sub">Veuillez indiquer la raison du refus pour {rejectingBooking.clientName}</div>
+            <div className="form-group">
+              <textarea
+                className="form-input"
+                rows="3"
+                value={rejectionReason}
+                onChange={e => setRejectionReason(e.target.value)}
+                placeholder="Ex: Je suis déjà en rendez-vous..."
+              />
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={() => setRejectingBooking(null)}>Annuler</button>
+              <button className="btn btn-primary" style={{ background: 'var(--red)' }} onClick={() => {
+                onReject(rejectingBooking.id, rejectingBooking.clientName, rejectionReason);
+                setRejectingBooking(null);
+              }}>Confirmer le refus</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="grid-2">
         <div className="card">
           <div className="card-header"><div className="card-title">Prochaines réservations</div></div>
           <div className="card-body" style={{ padding: '0 20px' }}>
-            <div className="tl">
-              {[
-                { init: 'TM', name: 'Thomas M.', slot: 'Lundi 10:00 · 15 min', amount: '€12.75', dotColor: 'orange' },
-                { init: 'JK', name: 'Julie K.', slot: 'Mercredi 14:00 · 30 min', amount: '€25.50', dotColor: 'blue' },
-                { init: 'AR', name: 'Alexis R.', slot: 'Jeudi 09:00 · 5 min', amount: '€4.25', dotColor: 'gray' },
-              ].map((item, i) => (
-                <div key={i} className="tl-item">
-                  <div className="tl-dot-col">
-                    <div className={`tl-dot ${item.dotColor}`} />
-                    {i < 2 && <div className="tl-line" />}
+            {loading ? <div style={{ padding: 20 }}>Chargement...</div> : sessions.length === 0 ? (
+              <div style={{ padding: '30px 0', textAlign: 'center', color: 'var(--muted)' }}>Aucune réservation pour le moment.</div>
+            ) : (
+              <div className="tl">
+                {sessions.filter(s => s.status !== 'completed' && s.status !== 'cancelled').slice(0, 5).map((item, i) => (
+                  <div key={i} className="tl-item">
+                    <div className="tl-dot-col">
+                      <div className="tl-dot blue" />
+                      {i < sessions.length - 1 && <div className="tl-line" />}
+                    </div>
+                    <div style={{ flex: 1, paddingBottom: 4 }}>
+                      <div style={{ fontWeight: 600, fontSize: 14 }}>{item.client_name || `Client #${item.client}`}</div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>{item.slot_label || new Date(item.scheduled_at).toLocaleString()}</div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontFamily: 'var(--syne)', fontWeight: 700, color: 'var(--orange)' }}>€{item.total_price}</div>
+                      <span className="badge badge-pending" style={{ fontSize: 10 }}>{item.status}</span>
+                    </div>
                   </div>
-                  <div style={{ flex: 1, paddingBottom: 4 }}>
-                    <div style={{ fontWeight: 600, fontSize: 14 }}>{item.name}</div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>{item.slot}</div>
-                  </div>
-                  <div style={{ fontFamily: 'var(--syne)', fontWeight: 700, color: 'var(--orange)' }}>{item.amount}</div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
         <div className="card">
-          <div className="card-header"><div className="card-title">Revenus 7 jours</div></div>
-          <div className="card-body">
-            <MiniBarChart data={chartData} />
+          <div className="card-header"><div className="card-title">Derniers avis</div></div>
+          <div className="card-body" style={{ padding: '0 20px' }}>
+            {sessions.filter(s => s.rating).length === 0 ? (
+              <div style={{ padding: '30px 0', textAlign: 'center', color: 'var(--muted)' }}>Aucun avis reçu.</div>
+            ) : (
+              <div className="tl">
+                {sessions.filter(s => s.rating).slice(0, 5).map((item, i) => (
+                  <div key={i} className="tl-item" style={{ borderBottom: i < 4 ? '1px solid var(--border)' : 'none', padding: '12px 0' }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <div style={{ fontWeight: 700, fontSize: 14 }}>{item.client_name}</div>
+                        <div style={{ color: 'var(--amber)', fontWeight: 700 }}>{item.rating} ★</div>
+                      </div>
+                      <div style={{ fontSize: 13, color: 'var(--ink2)', fontStyle: item.review_comment ? 'normal' : 'italic' }}>
+                        {item.review_comment || "Pas de commentaire laissé."}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                        Session du {new Date(item.scheduled_at).toLocaleDateString()}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -122,31 +235,40 @@ export function ExpertAvailability() {
 
 // ─── EXPERT SESSIONS ───
 export function ExpertSessions() {
-  const rows = [
-    { client: 'Thomas M.', date: 'Auj. 11:23', dur: '4 min 12s', amount: '€3.04', note: '★★★★★' },
-    { client: 'Julie K.', date: 'Auj. 09:45', dur: '8 min 00s', amount: '€5.78', note: '★★★★★' },
-    { client: 'Emma D.', date: 'Hier 16:10', dur: '11 min 34s', amount: '€8.36', note: '★★★★☆' },
-  ];
+  const [sessions, setSessions] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    expertAPI.getMySessions().then(data => {
+      setSessions(data || []);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, []);
+
   return (
     <div>
       <div className="page-eyebrow">Historique</div>
       <div className="page-title">Mes sessions</div>
       <div className="card">
         <div className="card-body" style={{ padding: 0 }}>
-          <table className="table">
-            <thead><tr><th>Client</th><th>Date</th><th>Durée</th><th>Montant reçu</th><th>Note</th></tr></thead>
-            <tbody>
-              {rows.map((r, i) => (
-                <tr key={i}>
-                  <td><strong>{r.client}</strong></td>
-                  <td style={{ color: 'var(--muted)' }}>{r.date}</td>
-                  <td>{r.dur}</td>
-                  <td><strong style={{ color: 'var(--green)' }}>{r.amount}</strong></td>
-                  <td style={{ color: 'var(--amber)' }}>{r.note}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {loading ? <div style={{ padding: 30, textAlign: 'center' }}>Chargement...</div> : sessions.length === 0 ? (
+             <div style={{ padding: 50, textAlign: 'center', color: 'var(--muted)' }}>Vous n'avez pas encore de sessions terminées.</div>
+          ) : (
+            <table className="table">
+              <thead><tr><th>Client</th><th>Date</th><th>Durée</th><th>Montant reçu</th><th>Note</th></tr></thead>
+              <tbody>
+                {sessions.map((r, i) => (
+                  <tr key={i}>
+                    <td><strong>{r.client_name || `Client #${r.client}`}</strong></td>
+                    <td style={{ color: 'var(--muted)' }}>{new Date(r.scheduled_at).toLocaleDateString()}</td>
+                    <td>{r.actual_duration || '--'} min</td>
+                    <td><strong style={{ color: 'var(--green)' }}>€{r.total_price || '0.00'}</strong></td>
+                    <td style={{ color: 'var(--amber)' }}>{r.rating ? `${r.rating} ★` : '--'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     </div>
@@ -155,7 +277,44 @@ export function ExpertSessions() {
 
 // ─── EXPERT PROFILE ───
 export function ExpertProfile() {
-  const { showToast } = useApp();
+  const { currentUser, showToast } = useApp();
+  const [profile, setProfile] = useState({ 
+    title: currentUser?.title || '', 
+    bio: currentUser?.bio || '', 
+    hourly_rate: currentUser?.hourly_rate || 0 
+  });
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (currentUser) {
+      setProfile({
+        title: currentUser.title || '',
+        bio: currentUser.bio || '',
+        hourly_rate: currentUser.hourly_rate || 0
+      });
+    }
+  }, [currentUser]);
+
+  const handleSaveInfo = async () => {
+    try {
+      await expertAPI.updateMe({ title: profile.title, bio: profile.bio });
+      showToast('Profil mis à jour ✓');
+    } catch (err) {
+      showToast('Erreur', err.message);
+    }
+  };
+
+  const handleSaveRate = async () => {
+    try {
+      await expertAPI.updateMe({ hourly_rate: profile.hourly_rate });
+      showToast('Tarifs mis à jour ✓', 'Vos nouveaux tarifs sont en ligne.');
+    } catch (err) {
+      showToast('Erreur', err.message);
+    }
+  };
+
+  if (loading) return <div>Chargement du profil...</div>;
+
   return (
     <div>
       <div className="page-eyebrow">Mon profil</div>
@@ -164,24 +323,24 @@ export function ExpertProfile() {
         <div className="card">
           <div className="card-header"><div className="card-title">Informations</div></div>
           <div className="card-body">
-            <div className="form-group"><label className="form-label">Nom affiché</label><input className="form-input" defaultValue="Dr. Sarah Benali" /></div>
-            <div className="form-group"><label className="form-label">Titre</label><input className="form-input" defaultValue="Médecin généraliste — 12 ans" /></div>
+            <div className="form-group"><label className="form-label">Nom affiché</label><input className="form-input" disabled defaultValue={`${currentUser.first_name} ${currentUser.last_name}`} /></div>
+            <div className="form-group"><label className="form-label">Titre</label><input className="form-input" value={profile.title} onChange={e => setProfile({...profile, title: e.target.value})} placeholder="Ex: Développeur Senior" /></div>
             <div className="form-group">
               <label className="form-label">Bio</label>
-              <textarea className="form-input" rows="3" defaultValue="Médecin diplômée de Paris, spécialisée en médecine générale et préventive." />
+              <textarea className="form-input" rows="4" value={profile.bio} onChange={e => setProfile({...profile, bio: e.target.value})} placeholder="Décrivez votre expertise..." />
             </div>
-            <button className="btn btn-primary" onClick={() => showToast('Profil mis à jour ✓')}>Sauvegarder</button>
+            <button className="btn btn-primary" onClick={handleSaveInfo}>Sauvegarder</button>
           </div>
         </div>
         <div className="card">
           <div className="card-header"><div className="card-title">Tarification</div></div>
           <div className="card-body">
-            <div className="form-group"><label className="form-label">Tarif (€/minute)</label><input className="form-input" type="number" defaultValue="0.85" step="0.05" /></div>
+            <div className="form-group"><label className="form-label">Tarif (€/minute)</label><input className="form-input" type="number" value={profile.hourly_rate} onChange={e => setProfile({...profile, hourly_rate: e.target.value})} step="0.05" /></div>
             <div className="form-row">
-              <div className="form-group"><label className="form-label">Min (min)</label><input className="form-input" type="number" defaultValue="3" /></div>
-              <div className="form-group"><label className="form-label">Max (min)</label><input className="form-input" type="number" defaultValue="60" /></div>
+              <div className="form-group"><label className="form-label">Min (min)</label><input className="form-input" type="number" defaultValue="3" disabled /></div>
+              <div className="form-group"><label className="form-label">Max (min)</label><input className="form-input" type="number" defaultValue="60" disabled /></div>
             </div>
-            <button className="btn btn-primary btn-full" onClick={() => showToast('Tarifs mis à jour ✓', 'Vos nouveaux tarifs sont en ligne.')}>Mettre à jour</button>
+            <button className="btn btn-primary btn-full" onClick={handleSaveRate}>Mettre à jour</button>
           </div>
         </div>
       </div>

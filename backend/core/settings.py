@@ -97,8 +97,8 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': 'minutexpert_db',      # Le nom de la base que tu vas créer
-        'USER': 'admin',     # Ton nom d'utilisateur Postgres
-        'PASSWORD': 'admin123',    # Ton mot de passe
+        'USER': 'postgres',     # Ton nom d'utilisateur Postgres
+        'PASSWORD': '1234',    # Ton mot de passe
         'HOST': '127.0.0.1',           # Ou 'localhost'
         'PORT': '5432',                # Port par défaut de Postgres
     }
@@ -145,6 +145,12 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+}
 
 CORS_ALLOW_ALL_ORIGINS = True  # Pour le développement (plus simple)
 # Ou plus sécurisé :

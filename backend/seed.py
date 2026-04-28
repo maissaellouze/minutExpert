@@ -12,9 +12,12 @@ def seed():
     print("--- Debut du Seed (Generation des donnees) ---")
     
     # Création de quelques catégories
-    cat1, _ = Category.objects.get_or_create(name="Développement Web", slug="developpement-web")
-    cat2, _ = Category.objects.get_or_create(name="Marketing Digital", slug="marketing-digital")
-    cat3, _ = Category.objects.get_or_create(name="Design Graphique", slug="design-graphique")
+    # Création des catégories "Old" (Médical, Juridique, etc.)
+    cat1, _ = Category.objects.get_or_create(name="⚕ Médical", slug="medical")
+    cat2, _ = Category.objects.get_or_create(name="⚖ Juridique", slug="juridique")
+    cat3, _ = Category.objects.get_or_create(name="💻 Tech & Dev", slug="tech-dev")
+    cat4, _ = Category.objects.get_or_create(name="📈 Finance", slug="finance")
+    cat5, _ = Category.objects.get_or_create(name="🎨 Créatif", slug="creatif")
     
     print("Categories creees.")
 

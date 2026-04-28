@@ -1,5 +1,5 @@
-import { createContext, useContext, useState, useCallback, useRef } from 'react';
-import { authAPI } from '../services/api';
+import { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
+import { authAPI, clientAPI } from '../services/api';
 
 const AppContext = createContext(null);
 
@@ -26,7 +26,10 @@ export function AppProvider({ children }) {
   const [authLoading, setAuthLoading] = useState(false);
   const [authError,   setAuthError]   = useState('');
   const [currentUser, setCurrentUser] = useState(() => ({
-    role: localStorage.getItem('role') || null,
+    role:       localStorage.getItem('role') || null,
+    email:      localStorage.getItem('email') || '',
+    first_name: localStorage.getItem('first_name') || '',
+    last_name:  localStorage.getItem('last_name') || '',
   }));
 
   // Toast (déclaré tôt car utilisé dans login/signup)
@@ -46,7 +49,18 @@ export function AppProvider({ children }) {
     setAuthError('');
     try {
       const json = await authAPI.login({ email, password });
-      setCurrentUser({ role: json.role });
+      
+      localStorage.setItem('email', json.email || '');
+      localStorage.setItem('first_name', json.first_name || '');
+      localStorage.setItem('last_name', json.last_name || '');
+      
+      setCurrentUser({ 
+        role: json.role,
+        email: json.email,
+        first_name: json.first_name,
+        last_name: json.last_name
+      });
+      
       showToast(
         json.role === 'client' ? 'Bienvenue !' :
         json.role === 'expert' ? 'Bienvenue Expert !' : 'Bienvenue Admin !',
@@ -65,7 +79,18 @@ export function AppProvider({ children }) {
     setAuthError('');
     try {
       const json = await authAPI.signup(data);
-      setCurrentUser({ role: json.role });
+      
+      localStorage.setItem('email', json.email || '');
+      localStorage.setItem('first_name', json.first_name || '');
+      localStorage.setItem('last_name', json.last_name || '');
+      
+      setCurrentUser({ 
+        role: json.role,
+        email: json.email,
+        first_name: json.first_name,
+        last_name: json.last_name
+      });
+      
       showToast('Compte créé !', 'Bienvenue sur MinuteExpert.');
       navigate(json.role);
     } catch (err) {
@@ -77,10 +102,53 @@ export function AppProvider({ children }) {
 
   const logout = useCallback(() => {
     authAPI.logout();
-    setCurrentUser({ role: null });
+    localStorage.removeItem('email');
+    localStorage.removeItem('first_name');
+    localStorage.removeItem('last_name');
+    localStorage.removeItem('role');
+    localStorage.removeItem('access');
+    setCurrentUser({ role: null, email: '', first_name: '', last_name: '' });
     navigate('landing');
     showToast('Déconnexion', 'À bientôt !');
   }, [navigate, showToast]);
+
+  const fetchProfile = useCallback(async () => {
+    const role = localStorage.getItem('role');
+    const token = localStorage.getItem('access');
+    if (!token || !role) return;
+
+    try {
+      let data;
+      if (role === 'client') {
+        data = await clientAPI.getMe();
+      } else if (role === 'expert') {
+        const { expertAPI } = await import('../services/api');
+        data = await expertAPI.getMe();
+      }
+      if (data) {
+        setCurrentUser(prev => {
+          const next = { ...prev, ...data };
+          // If it's an expert, sync nested expert_profile if it exists
+          if (role === 'expert' && prev.expert_profile) {
+            next.expert_profile = { ...prev.expert_profile, ...data };
+          }
+          return next;
+        });
+      }
+    } catch (err) {
+      console.error("Failed to fetch profile:", err);
+      if (err.message.includes('401') || err.message.includes('Unauthorized')) {
+        logout();
+      }
+    }
+  }, []);
+
+  // Fetch profile periodically to keep rating/balance fresh
+  useEffect(() => {
+    fetchProfile();
+    const interval = setInterval(fetchProfile, 30000); // every 30 seconds
+    return () => clearInterval(interval);
+  }, [fetchProfile]);
 
   // ─── Booking state
   const [selectedExpert, setSelectedExpert] = useState(null);
@@ -94,31 +162,52 @@ export function AppProvider({ children }) {
   });
   const [mySlots, setMySlots] = useState({});
 
-  const confirmBooking = useCallback(() => {
+  const confirmBooking = useCallback(async () => {
     if (!selectedSlot || !selectedExpert) return;
-    const newBooked = { ...bookedSlots };
-    if (!newBooked[selectedExpert.id]) newBooked[selectedExpert.id] = {};
-    if (!newBooked[selectedExpert.id][selectedSlot.day]) newBooked[selectedExpert.id][selectedSlot.day] = [];
-    if (!newBooked[selectedExpert.id][selectedSlot.day].includes(selectedSlot.si)) {
-      newBooked[selectedExpert.id][selectedSlot.day] = [...newBooked[selectedExpert.id][selectedSlot.day], selectedSlot.si];
+
+    if (currentUser?.role !== 'client') {
+      showToast('Accès refusé', 'Seuls les clients peuvent réserver une session.');
+      return;
     }
-    setBookedSlots(newBooked);
-    const newMine = { ...mySlots };
-    if (!newMine[selectedExpert.id]) newMine[selectedExpert.id] = {};
-    if (!newMine[selectedExpert.id][selectedSlot.day]) newMine[selectedExpert.id][selectedSlot.day] = [];
-    newMine[selectedExpert.id][selectedSlot.day] = [...(newMine[selectedExpert.id][selectedSlot.day] || []), selectedSlot.si];
-    setMySlots(newMine);
-    const booking = {
-      id: Date.now(),
-      expert: selectedExpert,
-      slot: selectedSlot.label,
-      dur: selectedDur,
-      maxCost: (selectedExpert.rate * selectedDur * 1.15).toFixed(2),
-      rate: selectedExpert.rate,
-    };
-    setUpcomingSessions(prev => [booking, ...prev]);
-    setClientPage('booking-success');
-    showToast('Réservation confirmée ✓', `${selectedSlot.label} avec ${selectedExpert.name}`);
+
+    // Persist to backend
+    try {
+      const result = await clientAPI.createBooking({
+        expert_id: selectedExpert.id,
+        slot_label: selectedSlot.label,
+        duration: selectedDur,
+        scheduled_at: new Date().toISOString(),
+      });
+      
+      // Update local booked slots for immediate UI feedback
+      const newBooked = { ...bookedSlots };
+      if (!newBooked[selectedExpert.id]) newBooked[selectedExpert.id] = {};
+      if (!newBooked[selectedExpert.id][selectedSlot.day]) newBooked[selectedExpert.id][selectedSlot.day] = [];
+      if (!newBooked[selectedExpert.id][selectedSlot.day].includes(selectedSlot.si)) {
+        newBooked[selectedExpert.id][selectedSlot.day] = [...newBooked[selectedExpert.id][selectedSlot.day], selectedSlot.si];
+      }
+      setBookedSlots(newBooked);
+      const newMine = { ...mySlots };
+      if (!newMine[selectedExpert.id]) newMine[selectedExpert.id] = {};
+      if (!newMine[selectedExpert.id][selectedSlot.day]) newMine[selectedExpert.id][selectedSlot.day] = [];
+      newMine[selectedExpert.id][selectedSlot.day] = [...(newMine[selectedExpert.id][selectedSlot.day] || []), selectedSlot.si];
+      setMySlots(newMine);
+      const booking = {
+        id: result.id || Date.now(),
+        expert: selectedExpert,
+        slot: selectedSlot.label,
+        dur: selectedDur,
+        maxCost: (selectedExpert.rate * selectedDur * 1.15).toFixed(2),
+        rate: selectedExpert.rate,
+        booking_ref: result.booking_ref,
+      };
+      setUpcomingSessions(prev => [booking, ...prev]);
+      setClientPage('booking-success');
+      showToast('Réservation confirmée ✓', `${selectedSlot.label} avec ${selectedExpert.name}`);
+    } catch (err) {
+      console.error('Booking error:', err);
+      showToast('Erreur de réservation', err.message || 'Veuillez réessayer.');
+    }
   }, [selectedSlot, selectedExpert, selectedDur, bookedSlots, mySlots, showToast]);
 
   const cancelUpcoming = useCallback((id) => {
@@ -129,9 +218,11 @@ export function AppProvider({ children }) {
   // ─── Session
   const [sessExpert, setSessExpert] = useState(null);
   const [sessDur,    setSessDur]    = useState(10);
-  const launchSession = useCallback((expert, dur) => {
+  const [sessBookingId, setSessBookingId] = useState(null);
+  const launchSession = useCallback((expert, dur, bookingId) => {
     setSessExpert(expert);
     setSessDur(dur);
+    setSessBookingId(bookingId || null);
     navigate('session');
   }, [navigate]);
 
@@ -150,7 +241,7 @@ export function AppProvider({ children }) {
       bookStep,       setBookStep,
       upcomingSessions, cancelUpcoming,
       bookedSlots, mySlots, confirmBooking,
-      sessExpert, sessDur, launchSession,
+      sessExpert, sessDur, sessBookingId, launchSession,
       toast, showToast,
     }}>
       {children}

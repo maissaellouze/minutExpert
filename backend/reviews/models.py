@@ -18,8 +18,14 @@ class Review(models.Model):
         self.update_expert_rating()
 
     def update_expert_rating(self):
+        from experts.models import ExpertProfile
         expert_reviews = Review.objects.filter(expert=self.expert)
         avg = expert_reviews.aggregate(Avg('rating'))['rating__avg']
-        if avg is not None:
-            self.expert.avg_rating = round(avg, 2)
-            self.expert.save()
+        count = expert_reviews.count()
+        
+        # Use update() to bypass any potential signal or instance issues
+        ExpertProfile.objects.filter(id=self.expert.id).update(
+            avg_rating=round(float(avg), 2) if avg is not None else 0.0,
+            review_count=count
+        )
+        print(f"Expert {self.expert.id} updated: Avg {avg}, Count {count}")

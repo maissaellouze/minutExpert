@@ -25,8 +25,11 @@ class ExpertRequest(models.Model):
 class ExpertProfile(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='expert_profile')
     categories = models.ManyToManyField(Category, related_name='experts')
+    title = models.CharField(max_length=200, blank=True, null=True)
+    bio = models.TextField(blank=True, null=True)
     hourly_rate = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     avg_rating = models.DecimalField(max_digits=3, decimal_places=2, default=0.00)
+    review_count = models.PositiveIntegerField(default=0)
     is_verified = models.BooleanField(default=False)
 
     def __str__(self):

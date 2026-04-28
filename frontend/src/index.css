@@ -307,12 +307,12 @@ body {
 .avail-slots { display: flex; gap: 6px; flex-wrap: wrap; }
 .slot-btn {
   padding: 6px 12px; border-radius: 8px; font-size: 12px; font-weight: 500;
-  border: 1.5px solid var(--border); background: var(--white); cursor: pointer; transition: 0.15s;
+  border: 1.5px solid var(--blue-mid); background: var(--blue-dim); color: var(--blue); cursor: pointer; transition: 0.15s;
 }
-.slot-btn:hover { border-color: var(--orange-mid); }
-.slot-btn.on { background: var(--green-dim); border-color: var(--green); color: var(--green); }
-.slot-btn.booked { background: var(--orange-dim); border-color: var(--orange); color: var(--orange); cursor: not-allowed; }
-.slot-btn.mine { background: var(--blue-dim); border-color: var(--blue); color: var(--blue); cursor: not-allowed; }
+.slot-btn:hover { background: var(--blue-mid); border-color: var(--blue); }
+.slot-btn.on { background: var(--green); border-color: var(--green); color: #fff; }
+.slot-btn.booked { background: var(--red-dim); border-color: var(--red); color: var(--red); cursor: not-allowed; }
+.slot-btn.mine { background: var(--green-dim); border-color: var(--green); color: var(--green); cursor: not-allowed; }
 
 /* ─── WIZARD ─── */
 .wizard-bar { display: flex; margin-bottom: 24px; border-bottom: 1.5px solid var(--border); }

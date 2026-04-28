@@ -5,11 +5,12 @@ from django.core.mail import send_mail
 from django.conf import settings
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
+from httpx import request
 
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
 
 from .models import ExpertRequest, ExpertProfile, Category
@@ -74,9 +75,8 @@ def _create_expert_account(req):
     if req.category:
         profile.categories.add(req.category)
 
-    # 4. Lier la candidature à l'utilisateur
+    # 4. Lier la candidature à l'utilisateur (sera sauvé dans la vue)
     req.user = user
-    req.save()
 
     # 5. ENVOI DE L'EMAIL RÉEL (Via Gmail SMTP)
     print(f"DEBUG: Tentative d'envoi d'email à {req.email}...")
@@ -118,24 +118,38 @@ L'équipe MinuteExpert.
 
 # ── VUES API ──────────────────────────────────────────────────
 
+@method_decorator(csrf_exempt, name='dispatch')
 class ExpertRequestCreateView(APIView):
     """Soumission de candidature par le candidat"""
     permission_classes = [AllowAny]
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request):
-        data = request.data.copy()
-        file_obj = request.FILES.get('diploma_file')
-        if file_obj:
-            data['diploma_file'] = file_obj.read()
-            data['diploma_filename'] = file_obj.name
-            data['diploma_mimetype'] = file_obj.content_type
+        print(f"DEBUG: Received data keys: {list(request.data.keys())}")
+        
+        # Convert QueryDict to plain dict to allow modifications
+        data = {k: v for k, v in request.data.items()}
+
+        # Nettoyage des données
+        data.pop('user', None)
+
+        # Parsing des langues si envoyées en JSON string (FormData)
+        languages = data.get('languages')
+        if languages and isinstance(languages, str):
+            try:
+                import json
+                data['languages'] = json.loads(languages)
+            except:
+                data['languages'] = []
 
         s = ExpertRequestSerializer(data=data, context={'request': request})
+
         if s.is_valid():
             s.save()
-            return Response({'detail': 'Candidature envoyée.'}, status=status.HTTP_201_CREATED)
-        return Response(s.errors, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'detail': 'Candidature envoyée.'}, status=201)
+
+        print(f"DEBUG: Serializer errors: {s.errors}")
+        return Response(s.errors, status=400)
 
 @method_decorator(csrf_exempt, name='dispatch')
 class ExpertRequestListView(APIView):
@@ -156,14 +170,19 @@ class ExpertRequestDecisionView(APIView):
             return Response({'detail': 'Introuvable.'}, status=404)
 
         decision = request.data.get('decision')
+        print(f"DEBUG: Admin decision for request {pk}: {decision}")
+        
         if decision not in ('approved', 'rejected'):
             return Response({'detail': 'Décision invalide.'}, status=400)
 
         req.status = decision
-        req.save()
-
+        
         if decision == 'approved':
             _create_expert_account(req)
+
+        # On sauve une seule fois à la fin avec toutes les modifs (status + user)
+        req.save()
+        print(f"DEBUG: Request {pk} status saved as {req.status}")
 
         return Response({'detail': f'Candidature {decision}.'})
 
@@ -198,4 +217,81 @@ class ExpertDetailView(APIView):
             return Response({'detail': 'Expert introuvable.'}, status=404)
             
         s = ExpertProfileSerializer(expert)
+        return Response(s.data)
+
+class ExpertMeView(APIView):
+    """Récupère ou met à jour le profil de l'expert connecté"""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        if request.user.role != 'expert':
+            return Response({'detail': 'Accès refusé.'}, status=403)
+            
+        try:
+            profile = ExpertProfile.objects.get(user=request.user)
+        except ExpertProfile.DoesNotExist:
+            return Response({'detail': 'Profil introuvable.'}, status=404)
+            
+        s = ExpertProfileSerializer(profile)
+        return Response(s.data)
+        
+    def patch(self, request):
+        if request.user.role != 'expert':
+            return Response({'detail': 'Accès refusé.'}, status=403)
+            
+        try:
+            profile = request.user.expert_profile
+        except ExpertProfile.DoesNotExist:
+            return Response({'detail': 'Profil introuvable.'}, status=404)
+            
+        # Update first_name and last_name on User model if provided
+        first_name = request.data.get('first_name')
+        last_name = request.data.get('last_name')
+        user_changed = False
+        if first_name is not None:
+            request.user.first_name = first_name
+            user_changed = True
+        if last_name is not None:
+            request.user.last_name = last_name
+            user_changed = True
+        if user_changed:
+            request.user.save()
+
+        s = ExpertProfileSerializer(profile, data=request.data, partial=True)
+        if s.is_valid():
+            s.save()
+            return Response(s.data)
+        return Response(s.errors, status=400)
+
+class ExpertMySessionsView(APIView):
+    """Liste des sessions de l'expert connecté"""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        if request.user.role != 'expert':
+            return Response({'detail': 'Accès refusé.'}, status=403)
+            
+        try:
+            profile = request.user.expert_profile
+        except ExpertProfile.DoesNotExist:
+            return Response({'detail': 'Profil introuvable.'}, status=404)
+            
+        from bookings.models import Booking
+        from bookings.serializers import BookingDetailSerializer
+        bookings = Booking.objects.filter(expert=profile).select_related('client', 'expert__user').order_by('-scheduled_at')
+        s = BookingDetailSerializer(bookings, many=True)
+        return Response(s.data)
+
+class AdminExpertListView(APIView):
+    """Liste de tous les experts pour l'administrateur"""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        if request.user.role != 'admin' and not request.user.is_superuser:
+            return Response({'detail': 'Accès refusé.'}, status=403)
+            
+        experts = ExpertProfile.objects.all().select_related('user').prefetch_related('categories')
+        
+        # Serialize
+        s = ExpertProfileSerializer(experts, many=True)
         return Response(s.data)

@@ -5,15 +5,17 @@ class ExpertRequestSerializer(serializers.ModelSerializer):
     class Meta:
         model  = ExpertRequest
         fields = '__all__'
-        read_only_fields = ['status']
+        read_only_fields = ['status', 'user', 'diploma_file', 'diploma_filename', 'diploma_mimetype']
 
     def create(self, validated_data):
-        file_obj = self.context['request'].FILES.get('diploma_file')
-        if file_obj:
-            # On remplit les champs binaires du modèle
-            validated_data['diploma_file'] = file_obj.read()
-            validated_data['diploma_filename'] = file_obj.name
-            validated_data['diploma_mimetype'] = file_obj.content_type
+        # On récupère le fichier depuis la requête via le contexte
+        request = self.context.get('request')
+        if request and request.FILES:
+            file_obj = request.FILES.get('diploma_file')
+            if file_obj:
+                validated_data['diploma_file'] = file_obj.read()
+                validated_data['diploma_filename'] = file_obj.name
+                validated_data['diploma_mimetype'] = file_obj.content_type
         
         return super().create(validated_data)
 
@@ -58,7 +60,10 @@ class ExpertProfileSerializer(serializers.ModelSerializer):
             'last_name', 
             'email',
             'categories', 
+            'title',
+            'bio',
             'hourly_rate', 
             'avg_rating', 
+            'review_count',
             'is_verified'
         ]

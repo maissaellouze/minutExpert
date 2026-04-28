@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
-import { experts, liveSessions as liveSessionsData, clients, historyRows, payoutRows } from '../../data/mockData';
+import { adminAPI } from '../../services/api';
+import { liveSessions as liveSessionsData, historyRows, payoutRows } from '../../data/mockData';
 
 // AdminApplications est dans son propre fichier dédié
 export { default as AdminApplications } from './AdminApplications';
@@ -31,6 +32,9 @@ export function AdminOverview() {
   const { setAdminPage } = useApp();
   const [seconds, setSeconds] = useState(0);
   const [liveRows, setLiveRows] = useState(liveSessionsData.map(s => ({ ...s })));
+  const [expertCount, setExpertCount] = useState(0);
+  const [clientCount, setClientCount] = useState(0);
+  const [pendingCount, setPendingCount] = useState(0);
 
   useEffect(() => {
     const t = setInterval(() => {
@@ -38,6 +42,12 @@ export function AdminOverview() {
       setLiveRows(prev => prev.map(s => ({ ...s, secs: s.secs + 1 })));
     }, 1000);
     return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    adminAPI.getExperts().then(data => setExpertCount(Array.isArray(data) ? data.length : 0)).catch(() => {});
+    adminAPI.getClients().then(data => setClientCount(Array.isArray(data) ? data.length : 0)).catch(() => {});
+    adminAPI.getExpertRequests().then(data => setPendingCount(Array.isArray(data) ? data.filter(a => a.status === 'pending').length : 0)).catch(() => {});
   }, []);
 
   const lastUpdate = seconds < 60 ? `il y a ${seconds}s` : `il y a ${Math.floor(seconds / 60)}min`;
@@ -63,13 +73,13 @@ export function AdminOverview() {
         <div className="stat c-orange"><div className="stat-label">GMV aujourd'hui</div><div className="stat-val orange">€412</div><div className="stat-sub">↑ +18% vs hier (€349)</div></div>
         <div className="stat c-green"><div className="stat-label">Commission générée</div><div className="stat-val green">€61.80</div><div className="stat-sub">15% du GMV</div></div>
         <div className="stat c-blue"><div className="stat-label">Sessions aujourd'hui</div><div className="stat-val blue">48</div><div className="stat-sub">3 en cours · Durée moy: 8.4 min</div></div>
-        <div className="stat c-amber"><div className="stat-label">Candidatures en attente</div><div className="stat-val amber">3</div><div className="stat-sub">↑ 2 nouvelles aujourd'hui</div></div>
+        <div className="stat c-amber"><div className="stat-label">Candidatures en attente</div><div className="stat-val amber">{pendingCount}</div><div className="stat-sub">depuis la BDD</div></div>
       </div>
 
       {/* KPI Row 2 */}
       <div className="grid-4" style={{ marginBottom: 22 }}>
-        <div className="stat c-green"><div className="stat-label">Experts actifs</div><div className="stat-val green">12</div><div className="stat-sub">🟢 7 disponibles · 🟡 2 en session</div></div>
-        <div className="stat c-blue"><div className="stat-label">Clients inscrits</div><div className="stat-val blue">1 284</div><div className="stat-sub">↑ +23 cette semaine</div></div>
+        <div className="stat c-green"><div className="stat-label">Experts actifs</div><div className="stat-val green">{expertCount}</div><div className="stat-sub">inscrits dans la BDD</div></div>
+        <div className="stat c-blue"><div className="stat-label">Clients inscrits</div><div className="stat-val blue">{clientCount}</div><div className="stat-sub">inscrits dans la BDD</div></div>
         <div className="stat c-orange"><div className="stat-label">Note moyenne</div><div className="stat-val orange">4.93 ★</div><div className="stat-sub">sur 3 841 avis</div></div>
         <div className="stat c-amber"><div className="stat-label">GMV ce mois</div><div className="stat-val amber">€9 842</div><div className="stat-sub">Commission: €1 476</div></div>
       </div>
@@ -231,8 +241,30 @@ export function AdminAnalytics() {
 // ─── ADMIN EXPERTS LIST ───
 export function AdminExperts() {
   const [search, setSearch] = useState('');
+  const [expertsList, setExpertsList] = useState([]);
+  const [loading, setLoading] = useState(true);
   const { showToast } = useApp();
-  const filtered = experts.filter(e => !search || e.name.toLowerCase().includes(search.toLowerCase()));
+
+  useEffect(() => {
+    adminAPI.getExperts().then(data => {
+      const mapped = (data || []).map(e => ({
+        id: e.id,
+        name: `${e.first_name} ${e.last_name}`,
+        init: e.first_name ? e.first_name[0] : 'E',
+        title: e.title || 'Expert MinuteExpert',
+        rate: parseFloat(e.hourly_rate) || 0.85,
+        rating: parseFloat(e.avg_rating) || 0,
+        reviews: 0,
+        status: 'online',
+        color: '#e0f2fe',
+        tc: '#0284c7'
+      }));
+      setExpertsList(mapped);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, []);
+
+  const filtered = expertsList.filter(e => !search || e.name.toLowerCase().includes(search.toLowerCase()));
 
   return (
     <div>
@@ -248,7 +280,7 @@ export function AdminExperts() {
         </select>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {filtered.map(e => (
+        {loading ? <div style={{ padding: 20 }}>Chargement...</div> : filtered.map(e => (
           <div key={e.id} className="card">
             <div className="card-body" style={{ padding: '16px 20px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
@@ -275,6 +307,29 @@ export function AdminExperts() {
 
 // ─── ADMIN CLIENTS ───
 export function AdminClients() {
+  const [clientsList, setClientsList] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    adminAPI.getClients().then(data => {
+      const mapped = (data || []).map(c => ({
+        id: c.id,
+        name: `${c.first_name} ${c.last_name}`,
+        email: c.email,
+        init: c.first_name ? c.first_name[0] : 'C',
+        date: new Date(c.date_joined).toLocaleDateString(),
+        sessions: 0, // dynamic sessions later
+        spent: '€0.00',
+        last: '--',
+        status: c.status === 'active' ? 'Actif' : 'Banni',
+        color: '#f3e8ff',
+        tc: '#7e22ce'
+      }));
+      setClientsList(mapped);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, []);
+
   return (
     <div>
       <div className="page-eyebrow">Utilisateurs</div>
@@ -287,27 +342,29 @@ export function AdminClients() {
       </div>
       <div className="card">
         <div className="card-body" style={{ padding: 0 }}>
-          <table className="table">
-            <thead><tr><th>Client</th><th>Inscrit</th><th>Sessions</th><th>Dépensé total</th><th>Dernière session</th><th>Statut</th><th></th></tr></thead>
-            <tbody>
-              {clients.map((c, i) => (
-                <tr key={i}>
-                  <td>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div style={{ width: 32, height: 32, borderRadius: 8, background: c.color, color: c.tc, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--syne)', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{c.init}</div>
-                      <div><div style={{ fontWeight: 600, fontSize: 14 }}>{c.name}</div><div style={{ fontSize: 11, color: 'var(--muted)' }}>{c.email}</div></div>
-                    </div>
-                  </td>
-                  <td style={{ fontSize: 13, color: 'var(--muted)' }}>{c.date}</td>
-                  <td style={{ fontWeight: 600 }}>{c.sessions}</td>
-                  <td><strong style={{ color: 'var(--orange)' }}>{c.spent}</strong></td>
-                  <td style={{ fontSize: 13, color: 'var(--muted)' }}>{c.last}</td>
-                  <td><span className={`badge ${c.status === 'VIP' ? 'badge-approved' : 'badge-online'}`}>{c.status === 'VIP' ? '⭐ VIP' : 'Actif'}</span></td>
-                  <td><button className="btn btn-ghost btn-sm">Voir →</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {loading ? <div style={{ padding: 20, textAlign: 'center' }}>Chargement...</div> : (
+            <table className="table">
+              <thead><tr><th>Client</th><th>Inscrit</th><th>Sessions</th><th>Dépensé total</th><th>Dernière session</th><th>Statut</th><th></th></tr></thead>
+              <tbody>
+                {clientsList.map((c, i) => (
+                  <tr key={i}>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={{ width: 32, height: 32, borderRadius: 8, background: c.color, color: c.tc, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--syne)', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{c.init}</div>
+                        <div><div style={{ fontWeight: 600, fontSize: 14 }}>{c.name}</div><div style={{ fontSize: 11, color: 'var(--muted)' }}>{c.email}</div></div>
+                      </div>
+                    </td>
+                    <td style={{ fontSize: 13, color: 'var(--muted)' }}>{c.date}</td>
+                    <td style={{ fontWeight: 600 }}>{c.sessions}</td>
+                    <td><strong style={{ color: 'var(--orange)' }}>{c.spent}</strong></td>
+                    <td style={{ fontSize: 13, color: 'var(--muted)' }}>{c.last}</td>
+                    <td><span className={`badge ${c.status === 'Actif' ? 'badge-online' : 'badge-busy'}`}>{c.status}</span></td>
+                    <td><button className="btn btn-ghost btn-sm">Voir →</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     </div>

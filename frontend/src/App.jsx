@@ -5,6 +5,7 @@ import ClientApp from './components/client/ClientApp';
 import ExpertApp from './components/expert/ExpertApp';
 import AdminApp from './components/admin/AdminApp';
 import SessionScreen from './components/session/SessionScreen';
+import ExpertSessionScreen from './components/expert/ExpertSessionScreen';
 import { Toast } from './components/ui';
 
 export default function App() {
@@ -18,7 +19,8 @@ export default function App() {
       case 'client':   return <ClientApp />;
       case 'expert':   return <ExpertApp />;
       case 'admin':    return <AdminApp />;
-      case 'session':  return <SessionScreen />;
+      case 'session':        return <SessionScreen />;
+      case 'expert-session':  return <ExpertSessionScreen />;
       default:         return <LandingScreen />;
     }
   };

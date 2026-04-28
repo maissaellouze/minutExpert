@@ -35,3 +35,11 @@ class ClientSignupSerializer(serializers.ModelSerializer):
 class LoginSerializer(serializers.Serializer):
     email    = serializers.EmailField()
     password = serializers.CharField()
+
+class ClientProfileSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField(source='user.email', read_only=True)
+    username = serializers.CharField(source='user.username', read_only=True)
+
+    class Meta:
+        model = ClientProfile
+        fields = ['id', 'email', 'username', 'first_name', 'last_name', 'gender', 'birth_date', 'country', 'city', 'address', 'bio']
